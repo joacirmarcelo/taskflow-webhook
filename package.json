@@ -1,13 +1,10 @@
 {
   "name": "taskflow-webhook",
   "version": "1.0.0",
-  "description": "Webhook servidor para integração WhatsApp Business + Claude AI",
-  "main": "index.js",
+  "description": "TaskFlow AI - WhatsApp webhook server",
+  "main": "server.js",
   "scripts": {
-    "start": "node index.js"
-  },
-  "dependencies": {
-    "express": "^4.18.2"
+    "start": "node server.js"
   },
   "engines": {
     "node": ">=18.0.0"
