@@ -276,11 +276,11 @@ function App(){
   async function extractTasks(msgs,name){
     if(!claudeKey||!msgs.length)return[];
     const txt=msgs
-      .filter(m=>m.text?.message||m.caption||m.body)
+      .filter(m=>m.text?.message||m.text||m.caption||m.body)
       .map(m=>{
         const ts=m.messageTimestamp?new Date(m.messageTimestamp*1000).toLocaleDateString("pt-BR"):"";
         const sender=m.fromMe?"Eu":(m.senderName||m.pushname||name);
-        return`[${ts}] ${sender}: ${m.text?.message||m.caption||m.body||""}`;
+        return`[${ts}] ${sender}: ${m.text?.message||m.text||m.caption||m.body||""}`;
       }).filter(l=>l.length>15).join("\n");
     if(!txt.trim())return[];
     try{
