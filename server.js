@@ -102,7 +102,7 @@ const server = http.createServer(async (req, res) => {
       const payload = JSON.parse(body);
       // Use env var first, fallback to client-provided key
       const apiKey = process.env.CLAUDE_API_KEY || payload.apiKey;
-      if (!apiKey) return json(res, { error: "API key required" }, 400);
+if (!apiKey) return json(res, { error: "API key required" }, 400);
       delete payload.apiKey;
       const result = await httpsPost("api.anthropic.com", "/v1/messages",
         { "Content-Type": "application/json", "x-api-key": apiKey, "anthropic-version": "2023-06-01" },
