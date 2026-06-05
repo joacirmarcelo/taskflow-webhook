@@ -299,7 +299,7 @@ high=urgente/financeiro/prazo curto. medium=reuniões/retornos. low=geral.`,
           messages:[{role:"user",content:`Conversa com: ${name}\n\n${txt}`}]
         })
       }).then(r=>r.json());
-      const parsed=JSON.parse((r.content?.[0]?.text||"{}").replace(/```json|```/g,"").trim());
+      const parsed=JSON.parse((r.content?.[0]?.text||"{}").replace(/```json\n?|```/g,"").trim());
       return(parsed.items||[]).map(i=>({
         id:++uid.current,title:i.title,
         type:["task","commitment","pending","decision"].includes(i.type)?i.type:"task",
