@@ -289,7 +289,7 @@ function App(){
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           apiKey:claudeKey,
-          model:"claude-sonnet-4-20250514",max_tokens:3000,
+          model:"claude-sonnet-4-6",max_tokens:3000,
           system:`Você é extrator de tarefas de conversas WhatsApp Business da Unirad Centro de Saúde, Capão da Canoa/RS.
 Extraia TODAS as tarefas, compromissos, pendências e decisões.
 Título deve ser específico: inclua nomes, valores e datas mencionadas.
@@ -361,7 +361,7 @@ high=urgente/financeiro/prazo curto. medium=reuniões/retornos. low=geral.`,
         headers:{"Content-Type":"application/json"},
         body:JSON.stringify({
           apiKey:claudeKey,
-          model:"claude-sonnet-4-20250514",max_tokens:1000,
+          model:"claude-sonnet-4-6",max_tokens:1000,
           system:`Você é assistente de gestão do Joacir Sgarbossa, Co-diretor da Unirad Centro de Saúde, Capão da Canoa/RS.
 Tarefas atuais (${tasks.length} total):\n${summary}
 Responda em português, de forma objetiva e prática. Ajude a priorizar e tomar decisões.`,
