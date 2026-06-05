@@ -119,7 +119,7 @@ if (!apiKey) return json(res, { error: "API key required" }, 400);
     const options = {
       hostname: "api.z-api.io", port: 443, path: zapiPath,
       method: req.method,
-      headers: { "Content-Type": "application/json", "Client-Token": "" },
+      headers: { "Content-Type": "application/json", "Client-Token": process.env.ZAPI_CLIENT_TOKEN || "" },
     };
     const zapiReq = https.request(options, (zapiRes) => {
       let d = "";
