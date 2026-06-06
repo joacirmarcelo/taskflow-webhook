@@ -1,0 +1,1320 @@
+<!DOCTYPE html>
+<html lang="pt-BR">
+<head>
+<meta charset="UTF-8"/>
+<meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+<title>TaskFlow AI — FullLife</title>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react/18.2.0/umd/react.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/react-dom/18.2.0/umd/react-dom.production.min.js"></script>
+<script src="https://cdnjs.cloudflare.com/ajax/libs/babel-standalone/7.23.2/babel.min.js"></script>
+<link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@400;500;600;700;800&family=DM+Mono:wght@500&display=swap" rel="stylesheet"/>
+<style>
+*{box-sizing:border-box;margin:0;padding:0;}
+html,body,#root{height:100%;background:#0a0a0f;overflow:hidden;}
+body{font-family:'DM Sans',system-ui,sans-serif;color:#e2e8f0;}
+::-webkit-scrollbar{width:5px;height:5px;}
+::-webkit-scrollbar-thumb{background:#2a2a3d;border-radius:4px;}
+::-webkit-scrollbar-track{background:transparent;}
+input,textarea,select{font-family:'DM Sans',sans-serif;-webkit-appearance:none;}
+@keyframes spin{to{transform:rotate(360deg)}}
+@keyframes fadeIn{from{opacity:0;transform:translateY(6px)}to{opacity:1;transform:none}}
+@keyframes slideIn{from{transform:translateX(40px);opacity:0}to{transform:none;opacity:1}}
+@keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+@keyframes bounce{0%,100%{transform:translateY(0)}50%{transform:translateY(-4px)}}
+.tap:active{opacity:0.7;transform:scale(0.97);}
+.col-scroll{overflow-y:auto;overflow-x:hidden;}
+</style>
+</head>
+<body><div id="root"></div>
+<script type="text/babel">
+const {useState,useEffect,useRef,useCallback}=React;
+
+// ─── COLORS ────────────────────────────────────────────────────────────────
+const C={
+  bg:"#0a0a0f",surface:"#12121a",card:"#1a1a26",card2:"#1e1e2e",border:"#2a2a3d",border2:"#343450",
+  accent:"#00e5a0",accentDim:"#00e5a012",accentSoft:"#00e5a035",
+  purple:"#7c3aed",purpleDim:"#7c3aed18",
+  orange:"#f59e0b",orangeDim:"#f59e0b18",
+  red:"#ef4444",redDim:"#ef444418",
+  blue:"#3b82f6",blueDim:"#3b82f618",
+  text:"#e2e8f0",textMuted:"#64748b",textDim:"#94a3b8",
+};
+const STATUS={
+  todo:{label:"A Fazer",color:C.blue,bg:C.blueDim},
+  doing:{label:"Andamento",color:C.orange,bg:C.orangeDim},
+  done:{label:"Concluído",color:C.accent,bg:C.accentDim},
+};
+const TYPES={
+  task:{label:"Tarefa",icon:"✓",color:C.blue},
+  commitment:{label:"Compromisso",icon:"📅",color:C.orange},
+  pending:{label:"Pendente",icon:"⏳",color:C.purple},
+  decision:{label:"Decisão",icon:"⚡",color:C.accent},
+};
+const PRIO={high:{label:"Alta",color:C.red},medium:{label:"Média",color:C.orange},low:{label:"Baixa",color:C.blue}};
+const DAYS_PT=["Dom","Seg","Ter","Qua","Qui","Sex","Sáb"];
+const MONTHS_PT=["Janeiro","Fevereiro","Março","Abril","Maio","Junho","Julho","Agosto","Setembro","Outubro","Novembro","Dezembro"];
+
+// ─── STORAGE ───────────────────────────────────────────────────────────────
+const LS={
+  get:(k,d)=>{try{const v=localStorage.getItem(k);return v?JSON.parse(v):d;}catch{return d;}},
+  set:(k,v)=>{try{localStorage.setItem(k,JSON.stringify(v));}catch{}},
+};
+
+const PROXY="";
+
+async function zapiCall(inst,tok,path,method="GET",body=null){
+  const url=`${PROXY}/zapi/instances/${inst}/token/${tok}${path}`;
+  const opts={method,headers:{"Content-Type":"application/json"}};
+  if(body)opts.body=JSON.stringify(body);
+  const r=await fetch(url,opts);
+  return r.json();
+}
+
+// ─── MINI COMPONENTS ───────────────────────────────────────────────────────
+const Tag=({color,bg,children,xs})=>(
+  <span style={{background:bg||color+"22",color,border:`1px solid ${color}44`,borderRadius:5,
+    padding:xs?"1px 5px":"2px 8px",fontSize:xs?9:10,fontWeight:600,whiteSpace:"nowrap"}}>
+    {children}
+  </span>
+);
+const Inp=({label,value,onChange,type="text",placeholder,hint})=>(
+  <div style={{marginBottom:12}}>
+    {label&&<div style={{fontSize:11,fontWeight:600,color:C.textDim,marginBottom:5,letterSpacing:"0.05em"}}>{label}</div>}
+    <input type={type} value={value} onChange={onChange} placeholder={placeholder} style={{
+      width:"100%",background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,
+      color:C.text,padding:"11px 12px",outline:"none",fontSize:13,
+      fontFamily:type==="password"?"DM Mono,monospace":"inherit"}}/>
+    {hint&&<div style={{fontSize:10,color:C.textMuted,marginTop:4}}>{hint}</div>}
+  </div>
+);
+function Spinner({size=16,color=C.accent}){
+  return <div style={{width:size,height:size,border:`2px solid ${color}33`,borderTop:`2px solid ${color}`,
+    borderRadius:"50%",animation:"spin 0.7s linear infinite",flexShrink:0}}/>;
+}
+function Toggle({on,onChange}){
+  return(
+    <div onClick={()=>onChange(!on)} style={{width:38,height:20,borderRadius:10,
+      background:on?C.accent:C.border,cursor:"pointer",position:"relative",transition:"background 0.2s",flexShrink:0}}>
+      <div style={{position:"absolute",top:2,left:on?20:2,width:16,height:16,borderRadius:"50%",
+        background:"#fff",transition:"left 0.2s"}}/>
+    </div>
+  );
+}
+
+// ─── TASK CARD ─────────────────────────────────────────────────────────────
+function TaskCard({task,onStatus,onDelete,onClick,compact}){
+  const tp=TYPES[task.type]||TYPES.task;
+  const pr=PRIO[task.priority]||PRIO.medium;
+  return(
+    <div onClick={()=>onClick(task)} style={{
+      background:C.card,border:`1px solid ${C.border}`,borderLeft:`3px solid ${tp.color}`,
+      borderRadius:10,padding:compact?"9px 10px":"11px 12px",cursor:"pointer",
+      marginBottom:6,animation:"slideIn 0.2s",transition:"border-color 0.15s"}}
+      onMouseEnter={e=>e.currentTarget.style.borderColor=C.border2}
+      onMouseLeave={e=>e.currentTarget.style.borderColor=C.border}>
+      <div style={{display:"flex",justifyContent:"space-between",alignItems:"flex-start",gap:6}}>
+        <div style={{flex:1,minWidth:0}}>
+          <div style={{display:"flex",gap:4,flexWrap:"wrap",marginBottom:4}}>
+            <Tag color={tp.color} xs>{tp.icon} {tp.label}</Tag>
+            <Tag color={pr.color} xs>{pr.label}</Tag>
+          </div>
+          <div style={{fontSize:13,fontWeight:600,color:C.text,lineHeight:1.4,marginBottom:4,
+            overflow:"hidden",display:"-webkit-box",WebkitLineClamp:2,WebkitBoxOrient:"vertical"}}>
+            {task.title}
+          </div>
+          <div style={{fontSize:10,color:C.textMuted,display:"flex",gap:6,flexWrap:"wrap"}}>
+            <span>📱 {task.contact}</span>
+            {task.date&&<span>📅 {task.date}</span>}
+          </div>
+        </div>
+        <button onClick={e=>{e.stopPropagation();onDelete(task.id);}}
+          style={{background:"none",border:"none",color:C.textMuted,fontSize:15,padding:"1px 3px",cursor:"pointer",flexShrink:0}}>✕</button>
+      </div>
+      {!compact&&(
+        <div style={{display:"flex",gap:4,marginTop:8,flexWrap:"wrap"}}>
+          {Object.entries(STATUS).map(([k,cfg])=>(
+            <button key={k} onClick={e=>{e.stopPropagation();onStatus(task.id,k);}} style={{
+              background:task.status===k?cfg.bg:"transparent",
+              border:`1px solid ${task.status===k?cfg.color:C.border}`,
+              color:task.status===k?cfg.color:C.textMuted,
+              borderRadius:16,padding:"3px 8px",fontSize:9,fontWeight:600,cursor:"pointer"}}>
+              {cfg.label}
+            </button>
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
+// ─── MAIN APP ──────────────────────────────────────────────────────────────
+function App(){
+  // Keys & settings
+  const [claudeKey,setClaudeKey]=useState(()=>LS.get("tf_claude",""));
+  const [openaiKey,setOpenaiKey]=useState(()=>LS.get("tf_openai",""));
+  const [zapiInst,setZapiInst]=useState(()=>LS.get("tf_inst",""));
+  const [zapiTok,setZapiTok]=useState(()=>LS.get("tf_tok",""));
+  useEffect(()=>LS.set("tf_claude",claudeKey),[claudeKey]);
+  useEffect(()=>LS.set("tf_openai",openaiKey),[openaiKey]);
+  useEffect(()=>LS.set("tf_inst",zapiInst),[zapiInst]);
+  useEffect(()=>LS.set("tf_tok",zapiTok),[zapiTok]);
+
+  // Tasks
+  const [tasks,setTasks]=useState(()=>LS.get("tf_tasks",[]));
+  useEffect(()=>LS.set("tf_tasks",tasks),[tasks]);
+
+  // Whatsapp
+  const [chats,setChats]=useState([]);
+  const [monitored,setMonitored]=useState(()=>LS.get("tf_monitored",[]));
+  useEffect(()=>LS.set("tf_monitored",monitored),[monitored]);
+  const [zapiStatus,setZapiStatus]=useState("disconnected");
+  const [qr,setQr]=useState(null);
+  const [zapiErr,setZapiErr]=useState(null);
+  const [checkingConn,setChecking]=useState(false);
+
+  // Sync
+  const [syncing,setSyncing]=useState(false);
+  const [syncLog,setSyncLog]=useState([]);
+  const [lastSync,setLastSync]=useState(()=>LS.get("tf_lastsync",""));
+  const [newBadge,setNewBadge]=useState(0);
+  const [autoSync,setAutoSync]=useState(()=>LS.get("tf_autosync",true));
+  useEffect(()=>LS.set("tf_lastsync",lastSync),[lastSync]);
+  useEffect(()=>LS.set("tf_autosync",autoSync),[autoSync]);
+
+  // UI state
+  const [panel,setPanel]=useState(null); // "whatsapp"|"settings"|null
+  const [selected,setSelected]=useState(null);
+  const [notif,setNotif]=useState(null);
+  const [filterStatus,setFilterStatus]=useState("all");
+  const [filterPrio,setFilterPrio]=useState("all");
+  const [search,setSearch]=useState("");
+
+  // Agenda
+  const today=new Date();
+  const [calMonth,setCalMonth]=useState(today.getMonth());
+  const [calYear,setCalYear]=useState(today.getFullYear());
+  const [selDay,setSelDay]=useState(today.getDate());
+  const [slots,setSlots]=useState(()=>LS.get("tf_slots",{}));
+  const [agendaItems,setAgendaItems]=useState(()=>LS.get("tf_agenda",[]));
+  const [newSlotTime,setNewSlotTime]=useState("08:00");
+  const [newSlotDur,setNewSlotDur]=useState("30");
+  const [schedModal,setSchedModal]=useState(null);
+  const [sendingMsg,setSendingMsg]=useState(false);
+  const [showSlotConfig,setShowSlotConfig]=useState(false);
+  const todayStr=`${today.getFullYear()}-${String(today.getMonth()+1).padStart(2,"0")}-${String(today.getDate()).padStart(2,"0")}`;
+  const [modalSchedDate,setModalSchedDate]=useState(todayStr);
+  const [modalSchedTime,setModalSchedTime]=useState("09:00");
+  const [savingDirectSched,setSavingDirectSched]=useState(false);
+  useEffect(()=>LS.set("tf_slots",slots),[slots]);
+  useEffect(()=>LS.set("tf_agenda",agendaItems),[agendaItems]);
+
+  // Chat
+  const [chatMsgs,setChatMsgs]=useState([{role:"assistant",content:"Olá Joacir! Sou sua assistente estratégica da FullLife. Tenho contexto sobre a Unirad, SumCare e Carepay. Como posso ajudar?"}]);
+  const [chatIn,setChatIn]=useState("");
+  const [chatLoad,setChatLoad]=useState(false);
+  const chatEnd=useRef(null);
+
+  // Refs for closures
+  const syncingRef=useRef(false);
+  const tasksRef=useRef(tasks);
+  const monitoredRef=useRef(monitored);
+  const claudeKeyRef=useRef(claudeKey);
+  const uid=useRef(Date.now());
+
+  useEffect(()=>{tasksRef.current=tasks;},[tasks]);
+  useEffect(()=>{monitoredRef.current=monitored;},[monitored]);
+  useEffect(()=>{claudeKeyRef.current=claudeKey;},[claudeKey]);
+  useEffect(()=>{chatEnd.current?.scrollIntoView({behavior:"smooth"});},[chatMsgs]);
+
+  const connected=zapiStatus==="connected";
+
+  const notify=(msg,color=C.accent)=>{
+    setNotif({msg,color});
+    setTimeout(()=>setNotif(null),3500);
+  };
+  const onStatus=(id,s)=>setTasks(p=>p.map(t=>t.id===id?{...t,status:s}:t));
+  const onDelete=(id)=>{setTasks(p=>p.filter(t=>t.id!==id));notify("Tarefa removida.",C.red);};
+
+  // Stats
+  const stats={
+    total:tasks.length,
+    todo:tasks.filter(t=>t.status==="todo").length,
+    doing:tasks.filter(t=>t.status==="doing").length,
+    done:tasks.filter(t=>t.status==="done").length,
+    urgent:tasks.filter(t=>t.priority==="high"&&t.status!=="done").length,
+  };
+
+  // ── ZAPI ────────────────────────────────────────────────────
+  async function checkConn(){
+    if(!zapiInst||!zapiTok)return false;
+    try{
+      const d=await zapiCall(zapiInst,zapiTok,"/status");
+      if(d?.connected){setZapiStatus("connected");setQr(null);return true;}
+      return false;
+    }catch{return false;}
+  }
+  async function loadChats(){
+    try{
+      const d=await zapiCall(zapiInst,zapiTok,"/chats");
+      if(Array.isArray(d))setChats(d);
+    }catch{setZapiErr("Erro ao buscar conversas.");}
+  }
+  async function fetchQr(){
+    const already=await checkConn();
+    if(already){loadChats();notify("WhatsApp já conectado! ✓");return;}
+    if(!zapiInst||!zapiTok){notify("Configure credenciais em Config.",C.red);setPanel("settings");return;}
+    setZapiStatus("connecting");setZapiErr(null);
+    try{
+      const d=await zapiCall(zapiInst,zapiTok,"/qr-code/image");
+      if(d?.value)setQr(d.value);
+      else if(d?.connected){setZapiStatus("connected");setQr(null);loadChats();notify("Conectado! ✓");}
+      else setZapiErr("Resposta inesperada: "+JSON.stringify(d).slice(0,80));
+    }catch{setZapiErr("Erro de conexão.");setZapiStatus("disconnected");}
+  }
+  useEffect(()=>{
+    if(zapiInst&&zapiTok) checkConn().then(ok=>{if(ok)loadChats();});
+  },[]);
+
+  // ── EXTRACT TASKS ───────────────────────────────────────────
+  async function extractTasks(msgs,name){
+    const key=claudeKeyRef.current;
+    if(!key||!msgs.length)return[];
+    const txt=msgs
+      .filter(m=>m.text?.message||m.text||m.caption||m.body)
+      .map(m=>{
+        const ts=m.messageTimestamp?new Date(m.messageTimestamp*1000).toLocaleDateString("pt-BR"):"";
+        const sender=m.fromMe?"Joacir":(m.senderName||m.pushname||name);
+        return`[${ts}] ${sender}: ${m.text?.message||m.text||m.caption||m.body||""}`;
+      }).filter(l=>l.length>15).join("\n");
+    if(!txt.trim())return[];
+    try{
+      const r=await fetch("/claude",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          apiKey:key,model:"claude-sonnet-4-6",max_tokens:3000,
+          system:`Você extrai tarefas de conversas WhatsApp da Unirad Centro de Saúde, Capão da Canoa/RS (empresa do Joacir Sgarbossa).
+Extraia TODAS as tarefas, compromissos, pendências e decisões mencionadas.
+Título específico: inclua nomes, valores e datas.
+Responda APENAS JSON válido sem markdown:
+{"items":[{"title":"titulo","type":"task|commitment|pending|decision","priority":"high|medium|low","contact":"nome","date":"YYYY-MM-DD ou null","notes":"contexto"}]}
+high=urgente/financeiro/prazo curto. medium=reuniões/retornos. low=geral.`,
+          messages:[{role:"user",content:`Conversa com ${name}:\n\n${txt}`}]
+        })
+      }).then(r=>r.json());
+      const parsed=JSON.parse((r.content?.[0]?.text||"{}").replace(/```json\n?|```/g,"").trim());
+      return(parsed.items||[]).map(i=>({
+        id:++uid.current,title:i.title,
+        type:["task","commitment","pending","decision"].includes(i.type)?i.type:"task",
+        status:"todo",priority:["high","medium","low"].includes(i.priority)?i.priority:"medium",
+        source:`WhatsApp — ${name}`,date:i.date||"",contact:i.contact||name,
+        notes:i.notes||"",phone:"",createdAt:new Date().toISOString(),
+      }));
+    }catch(e){console.error(e);return[];}
+  }
+
+  // ── SYNC ─────────────────────────────────────────────────────
+  async function processWebhookMessages(silent=false){
+    if(syncingRef.current)return;
+    if(!claudeKeyRef.current){
+      if(!silent){notify("Configure API Key do Claude.",C.red);setPanel("settings");}
+      return;
+    }
+    syncingRef.current=true;
+    setSyncing(true);
+    try{
+      const allMsgs=await fetch("/webhook-messages").then(r=>r.json());
+      if(!allMsgs.length){
+        syncingRef.current=false;setSyncing(false);
+        if(!silent)notify("Nenhuma mensagem nova no momento.",C.orange);
+        return;
+      }
+
+      // Filter by monitored contacts
+      const mon=monitoredRef.current;
+      const msgs=mon.length>0
+        ?allMsgs.filter(m=>{
+            const p=String(m.phone||"").replace(/\D/g,"");
+            return mon.some(monPhone=>{
+              const mp=String(monPhone||"").replace(/\D/g,"");
+              return p===mp||p.endsWith(mp.slice(-8))||mp.endsWith(p.slice(-8));
+            });
+          })
+        :allMsgs;
+
+      if(!msgs.length){
+        if(!silent)notify(`${allMsgs.length} msg(s) recebida(s) — nenhum contato selecionado corresponde.`,C.orange);
+        await fetch("/webhook-messages/clear",{method:"POST"});
+        syncingRef.current=false;setSyncing(false);
+        return;
+      }
+
+      setSyncLog([{name:"Processando...",status:`${msgs.length}/${allMsgs.length} msg(s)`,loading:true}]);
+
+      // Group by sender
+      const bySender={};
+      msgs.forEach(m=>{
+        const key=m.phone||"desconhecido";
+        if(!bySender[key])bySender[key]={name:m.senderName||key,msgs:[],phone:m.phone||""};
+        bySender[key].msgs.push(m);
+      });
+
+      const log=[];let total=0;
+      for(const [,data] of Object.entries(bySender)){
+        log.push({name:data.name,status:`${data.msgs.length} msg(s) — extraindo...`,loading:true});
+        setSyncLog([...log]);
+        const newT=await extractTasks(data.msgs,data.name);
+        const withPhone=newT.map(t=>({...t,phone:data.phone}));
+        const existingTitles=tasksRef.current.map(t=>t.title.toLowerCase());
+        const unique=withPhone.filter(t=>!existingTitles.includes(t.title.toLowerCase()));
+        total+=unique.length;
+        setTasks(p=>[...unique,...p]);
+        log[log.length-1]={name:data.name,status:`✓ ${unique.length} nova(s)`,loading:false};
+        setSyncLog([...log]);
+      }
+
+      await fetch("/webhook-messages/clear",{method:"POST"});
+      const now=new Date().toLocaleString("pt-BR");
+      setLastSync(now);
+      syncingRef.current=false;setSyncing(false);
+      setNewBadge(b=>b+total);
+      if(!silent)notify(`✓ ${total} nova(s) tarefa(s)!`);
+    }catch(e){
+      syncingRef.current=false;setSyncing(false);
+      console.error(e);
+    }
+  }
+
+  // Auto-poll: check count, auto-process if new messages
+  useEffect(()=>{
+    const poll=setInterval(async()=>{
+      try{
+        const r=await fetch("/webhook-messages/count");
+        const d=await r.json();
+        if(d.count>0&&!syncingRef.current){
+          if(autoSync&&claudeKeyRef.current){
+            processWebhookMessages(true);
+          }else{
+            setNewBadge(d.count);
+            notify(`📨 ${d.count} nova(s) mensagem(ns) — clique Sync!`,C.orange);
+          }
+        }
+      }catch{}
+    },30000);
+    return()=>clearInterval(poll);
+  },[autoSync]);
+
+  // ── CHAT ─────────────────────────────────────────────────────
+  async function sendChat(){
+    if(!chatIn.trim()||chatLoad)return;
+    if(!claudeKey){notify("Configure API Key do Claude.",C.red);setPanel("settings");return;}
+    const msg=chatIn.trim();
+    setChatMsgs(p=>[...p,{role:"user",content:msg}]);
+    setChatIn("");setChatLoad(true);
+    const summary=tasks.slice(0,50).map(t=>`[${t.status}] ${t.title} | ${t.type} | ${t.priority} | ${t.contact}${t.date?" | "+t.date:""}`).join("\n");
+    try{
+      const r=await fetch("/claude",{
+        method:"POST",headers:{"Content-Type":"application/json"},
+        body:JSON.stringify({
+          apiKey:claudeKey,model:"claude-sonnet-4-6",max_tokens:1200,
+          system:`Você é a assistente estratégica pessoal de Joacir Marcelo Sgarbossa, empresário em Capão da Canoa/RS.
+
+HOLDING FULLLIFE — estrutura societária:
+• Unirad Centro de Saúde (40% Joacir): 21 anos, maior centro diagnóstico litoral norte gaúcho, 120 colaboradores, 80 médicos, 23 municípios. Sócios: Guido (50%) e Rosimar (10%). Joacir é Diretor Comercial. Oportunidade: LBO ~R$24M para adquirir cotas. Reestruturação de dívida ativa (Unicred, FIDC). Franquia Blank day-hospital em análise.
+• SumCare (100% Joacir): cartão assistencial, 1.118 contratos, 2.753 vidas, crescimento 15%/mês. Planos Slim, Master, Black (Black inclui telemedicina grátis). Volume ~R$80k/mês. White label para outras clínicas. Pendente: Fator R / Anexo III Simples.
+• Carepay (100% Joacir): orquestrador de pagamentos BaaS (NÃO fintech), em estruturação. Atenderá SumCare, Unirad e externos. BaaS avaliados: Dock, Celcoin, Asaas (Maiara), Zoop. Taxas exigidas: MDR <2,3%, PIX <R$0,70, boleto <R$2,00, D+1 <2,5%/mês. Projeto Fernando separado da Unirad.
+
+ESPOSA/SÓCIA: Raquel Proença Sgarbossa (co-proprietária da FullLife).
+CONTATOS: Guido (50% Unirad), Rosimar (10% Unirad), Maiara (Asaas BaaS), Fernando (Carepay), Pablo Corrêa, Dr. Fábio, Dra. Samira, Guilherme Brito (Unirad).
+
+PROJETO TASKFLOW: plataforma de gestão de tarefas via WhatsApp (Z-API + Claude), rodando em https://taskflow-webhook.onrender.com
+
+TAREFAS ATUAIS (${tasks.length} total):
+${summary||"Nenhuma tarefa cadastrada ainda."}
+
+Responda em português, direto e estratégico. Contextualize no ecossistema FullLife quando relevante.`,
+          messages:[...chatMsgs.filter((_,i)=>i>0).slice(-8),{role:"user",content:msg}]
+        })
+      }).then(r=>r.json());
+      setChatMsgs(p=>[...p,{role:"assistant",content:r.content?.[0]?.text||"Não consegui processar."}]);
+    }catch{
+      setChatMsgs(p=>[...p,{role:"assistant",content:"Erro ao conectar com a IA."}]);
+    }
+    setChatLoad(false);
+  }
+
+  // ── AGENDA ───────────────────────────────────────────────────
+  const dateStr=(d)=>`${calYear}-${String(calMonth+1).padStart(2,"0")}-${String(d).padStart(2,"0")}`;
+  const itemsForDay=(d)=>agendaItems.filter(i=>i.date===dateStr(d));
+  const slotsForDay=(d)=>{
+    const ds=dateStr(d);
+    const weekday=DAYS_PT[new Date(calYear,calMonth,d).getDay()];
+    return slots[ds]||slots[weekday]||[];
+  };
+  const isToday=(d)=>d===today.getDate()&&calMonth===today.getMonth()&&calYear===today.getFullYear();
+
+  function addSlotToDay(type){
+    const key=type==="date"?dateStr(selDay):DAYS_PT[new Date(calYear,calMonth,selDay).getDay()];
+    const existing=slots[key]||[];
+    if(existing.find(s=>s.time===newSlotTime)){notify("Horário já existe.",C.orange);return;}
+    const updated={...slots,[key]:[...existing,{time:newSlotTime,duration:parseInt(newSlotDur)}].sort((a,b)=>a.time.localeCompare(b.time))};
+    setSlots(updated);notify("Horário adicionado ✓");
+  }
+  function removeSlot(key,time){
+    setSlots(p=>({...p,[key]:(p[key]||[]).filter(s=>s.time!==time)}));
+  }
+  function openSchedule(task,date,time,duration){
+    setSchedModal({task,date,time,duration});
+  }
+  async function confirmAndSend(){
+    if(!schedModal)return;
+    const {task,date,time}=schedModal;
+    setSendingMsg(true);
+    const dateObj=new Date(date+"T12:00:00");
+    const dateFmt=dateObj.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});
+    const msg=`Olá ${task.contact}! 😊\n\nSobre: *${task.title}*\n\nTemos disponibilidade para atendê-lo(a) no dia *${dateFmt}* às *${time}*.\n\nPodemos confirmar esse horário?`;
+    const item={id:Date.now(),taskId:task.id,taskTitle:task.title,contact:task.contact,
+      phone:task.phone||"",date,time,duration:schedModal.duration,status:"confirmed",msgSent:msg};
+    setAgendaItems(p=>[...p,item]);
+    if(zapiInst&&zapiTok&&task.phone){
+      try{await zapiCall(zapiInst,zapiTok,"/send-text","POST",{phone:task.phone,message:msg});notify("Mensagem enviada via WhatsApp! ✓");}
+      catch{notify("Agendamento salvo. Falha ao enviar WhatsApp.",C.orange);}
+    }else{
+      notify("Agendamento salvo! (Z-API não configurada)",C.orange);
+    }
+    setSendingMsg(false);setSchedModal(null);
+  }
+
+  // ── DIRECT SCHEDULE (from task modal) ────────────────────────
+  async function saveDirectSchedule(task, sendWA){
+    if(!modalSchedDate||!modalSchedTime){notify("Selecione data e horário.",C.orange);return;}
+    setSavingDirectSched(true);
+    const item={
+      id:Date.now(),taskId:task.id,taskTitle:task.title,
+      contact:task.contact,phone:task.phone||"",
+      date:modalSchedDate,time:modalSchedTime,duration:30,
+      status:"confirmed",msgSent:""
+    };
+    setAgendaItems(p=>[...p,item]);
+    if(sendWA&&zapiInst&&zapiTok&&task.phone){
+      const dateObj=new Date(modalSchedDate+"T12:00:00");
+      const dateFmt=dateObj.toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"});
+      const msg=`Olá ${task.contact}! 😊\n\nSobre: *${task.title}*\n\nTemos disponibilidade no dia *${dateFmt}* às *${modalSchedTime}*.\n\nPodemos confirmar esse horário?`;
+      try{
+        await zapiCall(zapiInst,zapiTok,"/send-text","POST",{phone:task.phone,message:msg});
+        notify("Agendado e mensagem enviada! ✓");
+      }catch{
+        notify("Agendado! Falha ao enviar WhatsApp.",C.orange);
+      }
+    }else{
+      notify("Agendamento salvo! ✓");
+    }
+    // Navigate calendar to show the new item
+    const[y,m,d]=modalSchedDate.split("-").map(Number);
+    setCalYear(y);setCalMonth(m-1);setSelDay(d);
+    setSavingDirectSched(false);
+    setSelected(null);
+  }
+  const firstDay=new Date(calYear,calMonth,1).getDay();
+  const daysInMonth=new Date(calYear,calMonth+1,0).getDate();
+  const calDays=[];
+  for(let i=0;i<firstDay;i++)calDays.push(null);
+  for(let d=1;d<=daysInMonth;d++)calDays.push(d);
+
+  const unscheduled=tasks.filter(t=>t.status!=="done"&&!agendaItems.find(a=>a.taskId===t.id));
+  const daySlots=selDay?slotsForDay(selDay):[];
+  const dayItems=selDay?itemsForDay(selDay):[];
+
+  // ── FILTERED TASKS ───────────────────────────────────────────
+  const filtered=tasks.filter(t=>{
+    if(filterStatus!=="all"&&t.status!==filterStatus)return false;
+    if(filterPrio!=="all"&&t.priority!==filterPrio)return false;
+    if(search&&!t.title.toLowerCase().includes(search.toLowerCase())&&
+       !t.contact.toLowerCase().includes(search.toLowerCase()))return false;
+    return true;
+  });
+
+  // ── RENDER ────────────────────────────────────────────────────
+  return(
+    <div style={{height:"100vh",display:"flex",flexDirection:"column",background:C.bg,color:C.text,overflow:"hidden"}}>
+
+      {/* Notification */}
+      {notif&&(
+        <div style={{position:"fixed",top:16,left:"50%",transform:"translateX(-50%)",zIndex:999,
+          background:C.card,border:`1px solid ${notif.color}`,color:notif.color,
+          borderRadius:10,padding:"9px 20px",fontSize:12,fontWeight:600,
+          boxShadow:`0 4px 20px ${notif.color}44`,whiteSpace:"nowrap",animation:"fadeIn 0.2s",pointerEvents:"none"}}>
+          {notif.msg}
+        </div>
+      )}
+
+      {/* ─── HEADER ─────────────────────────────────────────── */}
+      <div style={{background:C.surface,borderBottom:`1px solid ${C.border}`,
+        padding:"0 20px",height:56,display:"flex",alignItems:"center",justifyContent:"space-between",flexShrink:0}}>
+        {/* Logo */}
+        <div style={{display:"flex",alignItems:"center",gap:10,minWidth:200}}>
+          <div style={{width:30,height:30,background:C.accent,borderRadius:8,display:"flex",
+            alignItems:"center",justifyContent:"center",fontSize:14,fontWeight:800,color:"#000"}}>✦</div>
+          <div>
+            <div style={{fontWeight:800,fontSize:16,lineHeight:1}}>TaskFlow</div>
+            <div style={{fontSize:9,color:C.textMuted,letterSpacing:"0.08em"}}>FULLLIFE · POWERED BY AI</div>
+          </div>
+        </div>
+
+        {/* Center: sync controls */}
+        <div style={{display:"flex",alignItems:"center",gap:10}}>
+          {lastSync&&<span style={{fontSize:11,color:C.textMuted}}>Sync: {lastSync}</span>}
+          <div style={{display:"flex",alignItems:"center",gap:5}}>
+            <span style={{fontSize:11,color:C.textMuted}}>Auto</span>
+            <Toggle on={autoSync} onChange={setAutoSync}/>
+          </div>
+          <button onClick={()=>processWebhookMessages(false)} disabled={syncing}
+            style={{display:"flex",alignItems:"center",gap:6,background:syncing?C.border:C.accentDim,
+              border:`1px solid ${syncing?C.border:C.accentSoft}`,borderRadius:18,
+              padding:"6px 14px",cursor:syncing?"not-allowed":"pointer",color:C.accent}}>
+            {syncing?<Spinner size={12}/>:<span style={{fontSize:13}}>↻</span>}
+            <span style={{fontSize:12,fontWeight:600}}>{syncing?"Sincronizando...":"Sync"}</span>
+            {newBadge>0&&!syncing&&<span style={{background:C.red,color:"#fff",borderRadius:"50%",
+              width:16,height:16,fontSize:9,fontWeight:700,display:"flex",alignItems:"center",justifyContent:"center"}}>{newBadge}</span>}
+          </button>
+        </div>
+
+        {/* Right: nav */}
+        <div style={{display:"flex",alignItems:"center",gap:6,minWidth:200,justifyContent:"flex-end"}}>
+          <div style={{display:"flex",alignItems:"center",gap:5,marginRight:8}}>
+            <div style={{width:6,height:6,borderRadius:"50%",background:connected?C.accent:C.textMuted}}/>
+            <span style={{fontSize:11,color:connected?C.accent:C.textMuted,fontWeight:600}}>{connected?"Online":"Offline"}</span>
+          </div>
+          {[["📱","WhatsApp","whatsapp"],["⚙","Config","settings"]].map(([icon,label,key])=>(
+            <button key={key} onClick={()=>setPanel(panel===key?null:key)}
+              style={{display:"flex",alignItems:"center",gap:5,background:panel===key?C.accentDim:"transparent",
+                border:`1px solid ${panel===key?C.accentSoft:C.border}`,borderRadius:18,
+                padding:"5px 12px",cursor:"pointer",color:panel===key?C.accent:C.textDim}}>
+              <span style={{fontSize:13}}>{icon}</span>
+              <span style={{fontSize:11,fontWeight:600}}>{label}</span>
+            </button>
+          ))}
+        </div>
+      </div>
+
+      {/* ─── SYNC LOG BAR ────────────────────────────────────── */}
+      {syncLog.length>0&&syncing&&(
+        <div style={{background:C.card,borderBottom:`1px solid ${C.border}`,
+          padding:"6px 20px",display:"flex",gap:16,overflowX:"auto",flexShrink:0}}>
+          {syncLog.map((s,i)=>(
+            <div key={i} style={{display:"flex",alignItems:"center",gap:5,fontSize:11,whiteSpace:"nowrap"}}>
+              {s.loading?<Spinner size={10}/>:<span style={{color:C.accent}}>✓</span>}
+              <span style={{color:C.textDim}}>{s.name}</span>
+              <span style={{color:s.status.startsWith("✓")?C.accent:C.orange}}>— {s.status}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
+      {/* ─── MAIN 3-COLUMN AREA ──────────────────────────────── */}
+      <div style={{flex:1,display:"grid",gridTemplateColumns:"290px 1fr 350px",overflow:"hidden",minHeight:0}}>
+
+        {/* ══ COL 1: TASKS ══════════════════════════════════════ */}
+        <div style={{borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          {/* Header */}
+          <div style={{padding:"14px 14px 10px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:10}}>
+              <div>
+                <span style={{fontSize:15,fontWeight:800}}>Tarefas</span>
+                <span style={{fontSize:11,color:C.textMuted,marginLeft:8}}>{filtered.length}/{tasks.length}</span>
+              </div>
+              <div style={{display:"flex",gap:6}}>
+                {[
+                  {label:stats.urgent,color:C.red,hint:"urgentes"},
+                  {label:stats.todo,color:C.blue,hint:"a fazer"},
+                  {label:stats.doing,color:C.orange,hint:"andamento"},
+                ].map((s,i)=>(
+                  <div key={i} title={s.hint} style={{fontSize:13,fontWeight:700,color:s.color,
+                    background:s.color+"18",borderRadius:6,padding:"2px 7px"}}>{s.label}</div>
+                ))}
+              </div>
+            </div>
+            {/* Search */}
+            <input value={search} onChange={e=>setSearch(e.target.value)} placeholder="🔍 Buscar..."
+              style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:8,
+                color:C.text,padding:"7px 10px",outline:"none",fontSize:12,marginBottom:8}}/>
+            {/* Status filter */}
+            <div style={{display:"flex",gap:4,flexWrap:"wrap"}}>
+              {[["all","Todas"],["todo","A Fazer"],["doing","Andamento"],["done","Concluído"]].map(([k,l])=>(
+                <button key={k} onClick={()=>setFilterStatus(k)} style={{
+                  background:filterStatus===k?C.accent+"22":"transparent",
+                  border:`1px solid ${filterStatus===k?C.accentSoft:C.border}`,
+                  color:filterStatus===k?C.accent:C.textMuted,
+                  borderRadius:12,padding:"3px 8px",fontSize:10,fontWeight:600,cursor:"pointer"}}>
+                  {l}
+                </button>
+              ))}
+              {[["all",""],["high","🔴"],["medium","🟡"],["low","🟢"]].filter(([k])=>k!=="all"||filterPrio!=="all").map(([k,icon])=>(
+                <button key={k} onClick={()=>setFilterPrio(k==="all"&&filterPrio!=="all"?"all":k)} style={{
+                  background:filterPrio===k?C.orangeDim:"transparent",
+                  border:`1px solid ${filterPrio===k?C.orange:C.border}`,
+                  color:filterPrio===k?C.orange:C.textMuted,
+                  borderRadius:12,padding:"3px 7px",fontSize:10,cursor:"pointer"}}>
+                  {k==="all"?"✕ Prio":icon}
+                </button>
+              ))}
+            </div>
+          </div>
+          {/* Task list */}
+          <div className="col-scroll" style={{flex:1,padding:"10px 10px"}}>
+            {filtered.length===0?(
+              <div style={{textAlign:"center",padding:"40px 0",color:C.textMuted,fontSize:12}}>
+                <div style={{fontSize:28,marginBottom:8}}>○</div>
+                {tasks.length===0?"Sincronize para começar":"Nenhuma tarefa encontrada"}
+              </div>
+            ):filtered.map(t=>(
+              <TaskCard key={t.id} task={t} onStatus={onStatus} onDelete={onDelete} onClick={setSelected} compact/>
+            ))}
+          </div>
+        </div>
+
+        {/* ══ COL 2: AGENDA ══════════════════════════════════════ */}
+        <div style={{borderRight:`1px solid ${C.border}`,display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          {/* Header */}
+          <div style={{padding:"14px 16px 10px",borderBottom:`1px solid ${C.border}`,flexShrink:0,display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+            <div>
+              <span style={{fontSize:15,fontWeight:800}}>Agenda</span>
+              <span style={{fontSize:11,color:C.textMuted,marginLeft:8}}>{agendaItems.length} agendamentos</span>
+            </div>
+            <div style={{display:"flex",gap:8,alignItems:"center"}}>
+              <button onClick={()=>setShowSlotConfig(true)} style={{background:"transparent",border:`1px solid ${C.border}`,
+                color:C.textDim,borderRadius:8,padding:"4px 10px",fontSize:11,cursor:"pointer"}}>⚙ Horários</button>
+              <button onClick={()=>{if(calMonth===0){setCalMonth(11);setCalYear(y=>y-1);}else setCalMonth(m=>m-1);}}
+                style={{background:"none",border:"none",color:C.accent,fontSize:18,cursor:"pointer",padding:"0 4px"}}>‹</button>
+              <span style={{fontSize:13,fontWeight:700,minWidth:130,textAlign:"center"}}>{MONTHS_PT[calMonth]} {calYear}</span>
+              <button onClick={()=>{if(calMonth===11){setCalMonth(0);setCalYear(y=>y+1);}else setCalMonth(m=>m+1);}}
+                style={{background:"none",border:"none",color:C.accent,fontSize:18,cursor:"pointer",padding:"0 4px"}}>›</button>
+            </div>
+          </div>
+
+          <div className="col-scroll" style={{flex:1,padding:"10px 12px"}}>
+            {/* Calendar grid */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,overflow:"hidden",marginBottom:12}}>
+              {/* Weekday headers */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)",borderBottom:`1px solid ${C.border}`}}>
+                {DAYS_PT.map(d=>(
+                  <div key={d} style={{textAlign:"center",padding:"6px 0",fontSize:9,fontWeight:700,color:C.textMuted,letterSpacing:"0.04em"}}>{d}</div>
+                ))}
+              </div>
+              {/* Days */}
+              <div style={{display:"grid",gridTemplateColumns:"repeat(7,1fr)"}}>
+                {calDays.map((d,i)=>{
+                  if(!d)return<div key={`e-${i}`} style={{minHeight:48}}/>;
+                  const items=itemsForDay(d);
+                  const hasSlots=slotsForDay(d).length>0;
+                  const tod=isToday(d);
+                  const sel=selDay===d&&calMonth===today.getMonth()&&calYear===today.getFullYear()||selDay===d;
+                  return(
+                    <div key={d} onClick={()=>setSelDay(d===selDay?null:d)} style={{
+                      minHeight:48,padding:"4px 3px",cursor:"pointer",
+                      background:sel?C.accentDim:tod?"#7c3aed15":"transparent",
+                      borderRight:`1px solid ${C.border}22`,borderBottom:`1px solid ${C.border}22`,
+                      transition:"background 0.1s"}}>
+                      <div style={{textAlign:"center",fontSize:11,fontWeight:tod||sel?700:400,
+                        color:tod?C.purple:sel?C.accent:C.text,marginBottom:2}}>{d}</div>
+                      {hasSlots&&<div style={{textAlign:"center"}}><span style={{fontSize:6,color:C.accent}}>●</span></div>}
+                      {items.slice(0,2).map((it,idx)=>(
+                        <div key={idx} style={{background:it.status==="confirmed"?C.accentDim:C.orangeDim,
+                          borderRadius:3,padding:"1px 3px",fontSize:7,color:it.status==="confirmed"?C.accent:C.orange,
+                          marginTop:1,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>
+                          {it.time}
+                        </div>
+                      ))}
+                    </div>
+                  );
+                })}
+              </div>
+            </div>
+
+            {/* Selected day detail */}
+            {selDay&&(
+              <div style={{background:C.card,border:`1px solid ${C.accentSoft}`,borderRadius:12,padding:14,marginBottom:12}}>
+                <div style={{fontSize:13,fontWeight:700,color:C.accent,marginBottom:10}}>
+                  {new Date(calYear,calMonth,selDay).toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}
+                </div>
+
+                {/* Existing slots */}
+                {daySlots.length>0&&(
+                  <div style={{marginBottom:10}}>
+                    <div style={{fontSize:10,fontWeight:700,color:C.textMuted,marginBottom:6,letterSpacing:"0.05em"}}>HORÁRIOS</div>
+                    {daySlots.map(s=>{
+                      const booked=dayItems.find(i=>i.time===s.time);
+                      const weekdayKey=DAYS_PT[new Date(calYear,calMonth,selDay).getDay()];
+                      return(
+                        <div key={s.time} style={{display:"flex",alignItems:"center",gap:8,marginBottom:5,
+                          background:booked?C.accentDim:"transparent",borderRadius:7,padding:"5px 8px",
+                          border:`1px solid ${booked?C.accentSoft:C.border}`}}>
+                          <span style={{fontSize:12,fontWeight:700,color:booked?C.accent:C.text,minWidth:40}}>{s.time}</span>
+                          <span style={{fontSize:10,color:C.textMuted,flex:1}}>{s.duration}min{booked?` · ${booked.taskTitle?.slice(0,25)}`:""}</span>
+                          {!booked&&<span style={{fontSize:9,color:C.accent,fontWeight:600}}>livre</span>}
+                          <button onClick={()=>{
+                            const ds=dateStr(selDay);
+                            const k=slots[ds]?ds:weekdayKey;
+                            removeSlot(k,s.time);
+                          }} style={{background:"none",border:"none",color:C.textMuted,fontSize:12,cursor:"pointer"}}>✕</button>
+                        </div>
+                      );
+                    })}
+                  </div>
+                )}
+
+                {/* Add slot */}
+                <div style={{display:"flex",gap:5,marginBottom:10}}>
+                  <input type="time" value={newSlotTime} onChange={e=>setNewSlotTime(e.target.value)}
+                    style={{flex:1,background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"6px 8px",fontSize:11,outline:"none"}}/>
+                  <select value={newSlotDur} onChange={e=>setNewSlotDur(e.target.value)}
+                    style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:7,color:C.text,padding:"6px 7px",fontSize:11,outline:"none"}}>
+                    {["15","30","45","60","90","120"].map(d=><option key={d} value={d}>{d}min</option>)}
+                  </select>
+                  <button onClick={()=>addSlotToDay("date")} title="Adicionar para este dia"
+                    style={{background:C.accent,color:"#000",border:"none",borderRadius:7,padding:"6px 9px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+Dia</button>
+                  <button onClick={()=>addSlotToDay("weekday")} title="Adicionar para este dia da semana"
+                    style={{background:C.purpleDim,color:C.purple,border:`1px solid ${C.purple}44`,borderRadius:7,padding:"6px 8px",fontSize:11,fontWeight:700,cursor:"pointer"}}>+Sem</button>
+                </div>
+
+                {/* Allocate tasks */}
+                {unscheduled.length>0&&daySlots.length>0&&(
+                  <div>
+                    <div style={{fontSize:10,fontWeight:700,color:C.textMuted,marginBottom:6,letterSpacing:"0.05em"}}>ALOCAR TAREFA NESTE DIA</div>
+                    <div style={{fontSize:10,color:C.textMuted,marginBottom:8,background:C.accentDim,border:`1px solid ${C.accentSoft}`,borderRadius:6,padding:"4px 8px"}}>
+                      Clique no horário para salvar o agendamento e enviar mensagem
+                    </div>
+                    {unscheduled.slice(0,4).map(t=>(
+                      <div key={t.id} style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:8,padding:"8px 10px",marginBottom:6}}>
+                        <div style={{fontSize:11,fontWeight:600,marginBottom:2,color:C.text,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{t.title}</div>
+                        <div style={{fontSize:10,color:C.textMuted,marginBottom:6}}>📱 {t.contact}{t.phone?` · ${t.phone}`:""}</div>
+                        <div style={{display:"flex",gap:4,flexWrap:"wrap",alignItems:"center"}}>
+                          <span style={{fontSize:9,color:C.textMuted,marginRight:2}}>Horários livres:</span>
+                          {daySlots.filter(s=>!dayItems.find(i=>i.time===s.time)).map(s=>(
+                            <button key={s.time} onClick={()=>openSchedule(t,dateStr(selDay),s.time,s.duration)}
+                              style={{background:C.accent,color:"#000",border:"none",
+                                borderRadius:6,padding:"4px 10px",fontSize:11,fontWeight:700,cursor:"pointer",
+                                display:"flex",alignItems:"center",gap:4}}>
+                              📅 {s.time}
+                            </button>
+                          ))}
+                          {daySlots.every(s=>dayItems.find(i=>i.time===s.time))&&(
+                            <span style={{fontSize:10,color:C.orange}}>Todos os horários ocupados</span>
+                          )}
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )}
+
+                {/* Booked items */}
+                {dayItems.length>0&&(
+                  <div style={{marginTop:8}}>
+                    <div style={{fontSize:10,fontWeight:700,color:C.textMuted,marginBottom:6,letterSpacing:"0.05em"}}>AGENDAMENTOS</div>
+                    {dayItems.map(it=>(
+                      <div key={it.id} style={{display:"flex",alignItems:"center",gap:8,
+                        background:it.status==="confirmed"?C.accentDim:C.orangeDim,
+                        border:`1px solid ${it.status==="confirmed"?C.accentSoft:C.orange+"44"}`,
+                        borderRadius:8,padding:"7px 10px",marginBottom:5}}>
+                        <span style={{fontSize:12,fontWeight:700,color:it.status==="confirmed"?C.accent:C.orange}}>{it.time}</span>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:11,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{it.taskTitle}</div>
+                          <div style={{fontSize:9,color:C.textMuted}}>{it.contact} · {it.status==="confirmed"?"✓ Confirmado":"Pendente"}</div>
+                        </div>
+                        {it.status!=="confirmed"&&(
+                          <button onClick={()=>{
+                            const t=tasks.find(x=>x.id===it.taskId)||{title:it.taskTitle,contact:it.contact,phone:"",notes:""};
+                            openSchedule(t,it.date,it.time,it.duration);
+                          }} style={{background:C.accent,color:"#000",border:"none",borderRadius:6,padding:"4px 8px",fontSize:10,fontWeight:700,cursor:"pointer"}}>Enviar</button>
+                        )}
+                        <button onClick={()=>setAgendaItems(p=>p.filter(x=>x.id!==it.id))}
+                          style={{background:"none",border:"none",color:C.textMuted,fontSize:12,cursor:"pointer"}}>✕</button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+            )}
+
+            {/* Unscheduled tasks */}
+            {unscheduled.length>0&&(
+              <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:12}}>
+                <div style={{fontSize:12,fontWeight:700,marginBottom:4}}>📋 Aguardando agendamento ({unscheduled.length})</div>
+                <div style={{fontSize:10,color:C.textMuted,marginBottom:10}}>Clique em um dia do calendário e selecione o horário para agendar</div>
+                {unscheduled.slice(0,8).map(t=>(
+                  <div key={t.id} style={{display:"flex",alignItems:"center",gap:8,padding:"7px 0",borderBottom:`1px solid ${C.border}22`}}>
+                    <div style={{flex:1,minWidth:0}}>
+                      <div style={{fontSize:11,fontWeight:600,overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap",color:C.text}}>{t.title}</div>
+                      <div style={{fontSize:10,color:C.textMuted,display:"flex",gap:8,marginTop:1}}>
+                        <span>📱 {t.contact}</span>
+                        {t.priority==="high"&&<span style={{color:C.red}}>⚠ Alta prioridade</span>}
+                        {t.date&&<span>📅 {t.date}</span>}
+                      </div>
+                    </div>
+                    <button onClick={()=>{
+                      setSelDay(today.getDate());
+                      setCalMonth(today.getMonth());
+                      setCalYear(today.getFullYear());
+                      notify("Selecione um horário no dia destacado ↑",C.accent);
+                    }} style={{background:C.accentDim,border:`1px solid ${C.accentSoft}`,color:C.accent,
+                        borderRadius:6,padding:"4px 9px",fontSize:10,fontWeight:600,cursor:"pointer",flexShrink:0}}>
+                      📅 Agendar
+                    </button>
+                  </div>
+                ))}
+                {unscheduled.length>8&&(
+                  <div style={{fontSize:10,color:C.textMuted,textAlign:"center",marginTop:6}}>+ {unscheduled.length-8} tarefas não exibidas</div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+
+        {/* ══ COL 3: AI CHAT ═════════════════════════════════════ */}
+        <div style={{display:"flex",flexDirection:"column",overflow:"hidden"}}>
+          {/* Header */}
+          <div style={{padding:"14px 16px 10px",borderBottom:`1px solid ${C.border}`,flexShrink:0}}>
+            <div style={{fontSize:15,fontWeight:800,marginBottom:2}}>IA Assistente</div>
+            <div style={{fontSize:10,color:C.textMuted}}>Contexto completo da FullLife · {tasks.length} tarefas</div>
+          </div>
+          {/* Messages */}
+          <div className="col-scroll" style={{flex:1,padding:"12px 14px",display:"flex",flexDirection:"column",gap:10}}>
+            {chatMsgs.map((m,i)=>(
+              <div key={i} style={{display:"flex",justifyContent:m.role==="user"?"flex-end":"flex-start",animation:"slideIn 0.2s"}}>
+                <div style={{maxWidth:"88%",background:m.role==="user"?C.accent:C.card,
+                  color:m.role==="user"?"#000":C.text,
+                  borderRadius:m.role==="user"?"16px 16px 3px 16px":"16px 16px 16px 3px",
+                  padding:"9px 12px",fontSize:12,lineHeight:1.6,
+                  border:m.role!=="user"?`1px solid ${C.border}`:"none",whiteSpace:"pre-wrap"}}>
+                  {m.content}
+                </div>
+              </div>
+            ))}
+            {chatLoad&&(
+              <div style={{display:"flex",gap:4,padding:"4px 2px"}}>
+                {[0,1,2].map(i=>(
+                  <div key={i} style={{width:7,height:7,borderRadius:"50%",background:C.accent,
+                    animation:`bounce 1s ${i*0.15}s infinite`}}/>
+                ))}
+              </div>
+            )}
+            <div ref={chatEnd}/>
+          </div>
+          {/* Suggested prompts */}
+          <div style={{padding:"6px 14px",borderTop:`1px solid ${C.border}22`,display:"flex",gap:5,overflowX:"auto",flexShrink:0}}>
+            {["Tarefas urgentes?","Status LBO Unirad","Pendências SumCare","Próximos passos Carepay"].map(p=>(
+              <button key={p} onClick={()=>{setChatIn(p);}} style={{
+                background:C.card,border:`1px solid ${C.border}`,color:C.textDim,
+                borderRadius:10,padding:"4px 9px",fontSize:10,cursor:"pointer",whiteSpace:"nowrap",flexShrink:0}}>
+                {p}
+              </button>
+            ))}
+          </div>
+          {/* Input */}
+          <div style={{padding:"10px 14px",borderTop:`1px solid ${C.border}`,display:"flex",gap:8,background:C.bg,flexShrink:0}}>
+            <input value={chatIn} onChange={e=>setChatIn(e.target.value)}
+              onKeyDown={e=>e.key==="Enter"&&!e.shiftKey&&sendChat()}
+              placeholder="Pergunte sobre tarefas, empresas..."
+              style={{flex:1,background:C.card,border:`1px solid ${C.border}`,borderRadius:20,
+                color:C.text,padding:"9px 14px",outline:"none",fontSize:12}}/>
+            <button onClick={sendChat} disabled={chatLoad||!chatIn.trim()}
+              style={{background:C.accent,color:"#000",border:"none",borderRadius:20,
+                padding:"9px 16px",fontSize:14,fontWeight:700,cursor:"pointer",flexShrink:0}}>→</button>
+          </div>
+        </div>
+      </div>
+
+      {/* ─── WHATSAPP PANEL ──────────────────────────────────── */}
+      {panel==="whatsapp"&&(
+        <div style={{position:"fixed",inset:0,background:"#000000cc",zIndex:100,display:"flex",justifyContent:"flex-end"}}>
+          <div style={{width:480,background:C.surface,borderLeft:`1px solid ${C.border}`,
+            height:"100%",overflow:"auto",animation:"slideIn 0.25s",padding:"20px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div style={{fontSize:18,fontWeight:800}}>WhatsApp Business</div>
+              <button onClick={()=>setPanel(null)} style={{background:"none",border:"none",color:C.textMuted,fontSize:22,cursor:"pointer"}}>✕</button>
+            </div>
+
+            {/* Webhook URL */}
+            <div style={{background:C.accentDim,border:`1px solid ${C.accentSoft}`,borderRadius:10,padding:"10px 12px",marginBottom:16}}>
+              <div style={{fontSize:11,fontWeight:700,color:C.accent,marginBottom:4}}>🔔 URL do Webhook (Z-API)</div>
+              <div style={{fontSize:11,color:C.text,fontFamily:"DM Mono,monospace",wordBreak:"break-all"}}>{window.location.origin}/webhook</div>
+              <div style={{fontSize:10,color:C.textMuted,marginTop:4}}>Z-API → Webhooks → "Ao receber"</div>
+            </div>
+
+            {/* Connection status */}
+            <div style={{background:C.card,border:`1px solid ${connected?C.accent:C.border}`,borderRadius:10,padding:"12px 14px",marginBottom:14}}>
+              <div style={{display:"flex",alignItems:"center",justifyContent:"space-between"}}>
+                <div style={{display:"flex",alignItems:"center",gap:8}}>
+                  <div style={{width:8,height:8,borderRadius:"50%",background:connected?C.accent:C.textMuted}}/>
+                  <span style={{fontWeight:700,fontSize:13}}>{connected?"Conectado ✓":"Desconectado"}</span>
+                </div>
+                {connected&&<button onClick={loadChats} style={{background:"transparent",border:`1px solid ${C.border}`,
+                  color:C.textMuted,borderRadius:7,padding:"4px 9px",fontSize:10,cursor:"pointer"}}>↻ Atualizar</button>}
+              </div>
+              {zapiErr&&<div style={{marginTop:6,fontSize:11,color:C.red}}>⚠ {zapiErr}</div>}
+            </div>
+
+            {!connected&&(
+              <button onClick={fetchQr} style={{width:"100%",background:C.accent,color:"#000",
+                border:"none",borderRadius:10,padding:"12px",fontSize:13,fontWeight:700,cursor:"pointer",marginBottom:12}}>
+                📱 Gerar QR Code
+              </button>
+            )}
+            {qr&&(
+              <div style={{display:"flex",flexDirection:"column",alignItems:"center",gap:12,marginBottom:16}}>
+                <img src={qr} alt="QR" style={{width:200,height:200,borderRadius:10,border:`2px solid ${C.accent}`,background:"#fff",padding:6}}/>
+                <button onClick={async()=>{setChecking(true);const ok=await checkConn();if(ok){loadChats();notify("Conectado! ✓");}else notify("Ainda não conectado.",C.orange);setChecking(false);}}
+                  disabled={checkingConn} style={{width:"100%",background:"transparent",border:`1px solid ${C.accent}`,
+                    color:C.accent,borderRadius:10,padding:"10px",fontSize:12,fontWeight:700,cursor:"pointer"}}>
+                  {checkingConn?"Verificando...":"✓ Já escanei"}
+                </button>
+              </div>
+            )}
+
+            {/* Contact selection */}
+            {connected&&chats.length>0&&(
+              <>
+                <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:8}}>
+                  <div style={{fontSize:11,fontWeight:700,color:C.textMuted,letterSpacing:"0.05em"}}>
+                    CONVERSAS MONITORADAS ({monitored.length}/{chats.length})
+                  </div>
+                  <div style={{display:"flex",gap:5}}>
+                    <button onClick={()=>setMonitored([])} style={{background:"transparent",border:`1px solid ${C.border}`,
+                      color:C.textMuted,borderRadius:6,padding:"3px 7px",fontSize:9,cursor:"pointer"}}>Limpar</button>
+                    <button onClick={()=>setMonitored(chats.map(c=>c.phone||c.id?.user))} style={{background:"transparent",
+                      border:`1px solid ${C.accent}`,color:C.accent,borderRadius:6,padding:"3px 7px",fontSize:9,cursor:"pointer"}}>Todas</button>
+                  </div>
+                </div>
+                <div style={{fontSize:10,color:C.orange,marginBottom:8,background:C.orangeDim,border:`1px solid ${C.orange}33`,borderRadius:6,padding:"5px 8px"}}>
+                  ⚠ Apenas conversas marcadas terão tarefas extraídas no Sync
+                </div>
+                <div style={{display:"flex",flexDirection:"column",gap:5}}>
+                  {chats.map(chat=>{
+                    const phone=chat.phone||chat.id?.user;
+                    const name=chat.name||chat.pushname||phone;
+                    const isG=chat.isGroup||false;
+                    const sel=monitored.includes(phone);
+                    return(
+                      <div key={phone} onClick={()=>setMonitored(p=>p.includes(phone)?p.filter(x=>x!==phone):[...p,phone])}
+                        style={{display:"flex",alignItems:"center",gap:10,padding:"9px 12px",
+                          background:sel?C.accentDim:C.card,border:`1px solid ${sel?C.accentSoft:C.border}`,
+                          borderRadius:10,cursor:"pointer"}}>
+                        <div style={{width:36,height:36,borderRadius:"50%",background:isG?C.purpleDim:C.blueDim,
+                          border:`1px solid ${isG?C.purple:C.blue}44`,display:"flex",alignItems:"center",
+                          justifyContent:"center",fontSize:16,flexShrink:0}}>{isG?"👥":"👤"}</div>
+                        <div style={{flex:1,minWidth:0}}>
+                          <div style={{fontSize:12,fontWeight:600,color:sel?C.accent:C.text,
+                            overflow:"hidden",textOverflow:"ellipsis",whiteSpace:"nowrap"}}>{name}</div>
+                          <div style={{fontSize:10,color:C.textMuted}}>{isG?"Grupo":"Contato"}</div>
+                        </div>
+                        <div style={{width:18,height:18,borderRadius:5,border:`2px solid ${sel?C.accent:C.border}`,
+                          background:sel?C.accent:"transparent",display:"flex",alignItems:"center",justifyContent:"center",flexShrink:0}}>
+                          {sel&&<span style={{color:"#000",fontSize:11,fontWeight:800}}>✓</span>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </div>
+                <button onClick={()=>processWebhookMessages(false)} disabled={syncing}
+                  style={{width:"100%",background:syncing?C.border:C.accent,color:syncing?C.textMuted:"#000",
+                    border:"none",borderRadius:10,padding:"12px",fontSize:13,fontWeight:700,
+                    cursor:syncing?"not-allowed":"pointer",marginTop:14,display:"flex",alignItems:"center",justifyContent:"center",gap:8}}>
+                  {syncing&&<Spinner size={14} color="#000"/>}
+                  {syncing?"Sincronizando...":` ✦ Sincronizar ${monitored.length} conversa(s)`}
+                </button>
+              </>
+            )}
+          </div>
+        </div>
+      )}
+
+      {/* ─── SETTINGS PANEL ──────────────────────────────────── */}
+      {panel==="settings"&&(
+        <div style={{position:"fixed",inset:0,background:"#000000cc",zIndex:100,display:"flex",justifyContent:"flex-end"}}>
+          <div style={{width:420,background:C.surface,borderLeft:`1px solid ${C.border}`,
+            height:"100%",overflow:"auto",animation:"slideIn 0.25s",padding:"20px"}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:16}}>
+              <div style={{fontSize:18,fontWeight:800}}>Configurações</div>
+              <button onClick={()=>setPanel(null)} style={{background:"none",border:"none",color:C.textMuted,fontSize:22,cursor:"pointer"}}>✕</button>
+            </div>
+            <div style={{fontSize:11,color:C.textMuted,marginBottom:16}}>Salvo automaticamente neste dispositivo</div>
+
+            {/* Claude */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:12}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>✦ Claude API Key</div>
+              <Inp label="API KEY" type="password" value={claudeKey} onChange={e=>setClaudeKey(e.target.value)}
+                placeholder="sk-ant-api03-..." hint="console.anthropic.com → API Keys"/>
+              {claudeKey&&<div style={{fontSize:11,color:C.accent,marginTop:-8}}>✓ Configurada</div>}
+            </div>
+
+            {/* OpenAI (Whisper) */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:12}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:4}}>🎙 OpenAI API Key <span style={{fontSize:10,color:C.orange,fontWeight:400}}>(transcrição de áudios)</span></div>
+              <div style={{fontSize:11,color:C.textMuted,marginBottom:10}}>Habilita transcrição automática de mensagens de voz via Whisper. Requer atualização do server.js.</div>
+              <Inp label="OPENAI KEY" type="password" value={openaiKey} onChange={e=>setOpenaiKey(e.target.value)}
+                placeholder="sk-..." hint="platform.openai.com → API Keys"/>
+              {openaiKey&&<div style={{fontSize:11,color:C.accent,marginTop:-8}}>✓ Configurada</div>}
+              {openaiKey&&<div style={{fontSize:10,color:C.orange,marginTop:4}}>⚠ Para ativar transcrição, o server.js também precisa ser atualizado.</div>}
+            </div>
+
+            {/* Z-API */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:12}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>📱 Z-API</div>
+              <Inp label="INSTANCE ID" type="password" value={zapiInst} onChange={e=>setZapiInst(e.target.value)}
+                placeholder="3F41B83E9B62D2CC6A756E30FECD7EC6"/>
+              <Inp label="TOKEN" type="password" value={zapiTok} onChange={e=>setZapiTok(e.target.value)}
+                placeholder="Token da instância"/>
+              {zapiInst&&zapiTok&&<div style={{fontSize:11,color:C.accent,marginTop:-8}}>✓ Configurado</div>}
+            </div>
+
+            {/* Data */}
+            <div style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:12,padding:16,marginBottom:12}}>
+              <div style={{fontSize:13,fontWeight:700,marginBottom:10}}>⚙ Dados</div>
+              <div style={{fontSize:12,color:C.textMuted,marginBottom:12}}>{tasks.length} tarefas · {agendaItems.length} agendamentos</div>
+              <button onClick={()=>{if(confirm("Apagar todas as tarefas?"))setTasks([]);}}
+                style={{width:"100%",background:"transparent",border:`1px solid ${C.red}`,
+                  color:C.red,borderRadius:8,padding:"9px",fontSize:12,fontWeight:600,cursor:"pointer",marginBottom:6}}>
+                🗑 Apagar todas as tarefas
+              </button>
+              <button onClick={()=>{if(confirm("Limpar agenda?"))setAgendaItems([]);}}
+                style={{width:"100%",background:"transparent",border:`1px solid ${C.border}`,
+                  color:C.textMuted,borderRadius:8,padding:"9px",fontSize:12,fontWeight:600,cursor:"pointer"}}>
+                🗑 Limpar agenda
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── SLOT CONFIG MODAL ───────────────────────────────── */}
+      {showSlotConfig&&(
+        <div onClick={()=>setShowSlotConfig(false)} style={{position:"fixed",inset:0,background:"#000000cc",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:20,
+            width:420,maxHeight:"80vh",overflow:"auto",border:`1px solid ${C.border}`}}>
+            <div style={{display:"flex",justifyContent:"space-between",alignItems:"center",marginBottom:14}}>
+              <div style={{fontSize:15,fontWeight:700}}>⚙ Horários por dia da semana</div>
+              <button onClick={()=>setShowSlotConfig(false)} style={{background:"none",border:"none",color:C.textMuted,fontSize:20,cursor:"pointer"}}>✕</button>
+            </div>
+            <div style={{fontSize:11,color:C.textMuted,marginBottom:14}}>Configure horários padrão por dia da semana. Aparecem em todos os dias correspondentes.</div>
+            {DAYS_PT.map(day=>(
+              <div key={day} style={{marginBottom:14,background:C.surface,borderRadius:10,padding:"10px 12px"}}>
+                <div style={{fontSize:11,fontWeight:700,color:C.textDim,marginBottom:6}}>{day}</div>
+                <div style={{display:"flex",flexWrap:"wrap",gap:4,marginBottom:6}}>
+                  {(slots[day]||[]).map(s=>(
+                    <div key={s.time} style={{display:"flex",alignItems:"center",gap:4,background:C.card,
+                      border:`1px solid ${C.border}`,borderRadius:6,padding:"3px 7px"}}>
+                      <span style={{fontSize:11,color:C.text}}>{s.time} ({s.duration}min)</span>
+                      <button onClick={()=>removeSlot(day,s.time)} style={{background:"none",border:"none",color:C.red,fontSize:11,cursor:"pointer"}}>✕</button>
+                    </div>
+                  ))}
+                  {!(slots[day]||[]).length&&<span style={{fontSize:10,color:C.textMuted}}>Sem horários</span>}
+                </div>
+                <div style={{display:"flex",gap:4}}>
+                  <input type="time" defaultValue="08:00" id={`t-${day}`}
+                    style={{flex:1,background:C.card,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,padding:"5px 7px",fontSize:11,outline:"none"}}/>
+                  <select defaultValue="30" id={`d-${day}`}
+                    style={{background:C.card,border:`1px solid ${C.border}`,borderRadius:6,color:C.text,padding:"5px 7px",fontSize:11,outline:"none"}}>
+                    {["15","30","45","60","90"].map(d=><option key={d} value={d}>{d}min</option>)}
+                  </select>
+                  <button onClick={()=>{
+                    const t=document.getElementById(`t-${day}`).value;
+                    const d=document.getElementById(`d-${day}`).value;
+                    const existing=slots[day]||[];
+                    if(existing.find(s=>s.time===t)){notify("Horário já existe.",C.orange);return;}
+                    setSlots(p=>({...p,[day]:[...existing,{time:t,duration:parseInt(d)}].sort((a,b)=>a.time.localeCompare(b.time))}));
+                  }} style={{background:C.accent,color:"#000",border:"none",borderRadius:6,padding:"5px 10px",fontSize:12,fontWeight:700,cursor:"pointer"}}>+</button>
+                </div>
+              </div>
+            ))}
+            <button onClick={()=>setShowSlotConfig(false)} style={{width:"100%",background:C.accent,color:"#000",
+              border:"none",borderRadius:10,padding:"11px",fontSize:13,fontWeight:700,cursor:"pointer"}}>Fechar</button>
+          </div>
+        </div>
+      )}
+
+      {/* ─── SCHEDULE CONFIRM MODAL ──────────────────────────── */}
+      {schedModal&&(
+        <div style={{position:"fixed",inset:0,background:"#000000cc",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div style={{background:C.card,borderRadius:16,padding:20,width:420,border:`1px solid ${C.accentSoft}`}}>
+            <div style={{fontSize:15,fontWeight:700,marginBottom:4}}>📅 Confirmar Agendamento</div>
+            <div style={{fontSize:11,color:C.textMuted,marginBottom:14}}>A IA enviará uma mensagem sugerindo o horário via WhatsApp</div>
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:12,marginBottom:12}}>
+              <div style={{fontSize:10,color:C.textMuted,marginBottom:3}}>TAREFA</div>
+              <div style={{fontSize:12,fontWeight:600,marginBottom:8}}>{schedModal.task.title}</div>
+              <div style={{fontSize:10,color:C.textMuted,marginBottom:3}}>HORÁRIO</div>
+              <div style={{fontSize:14,fontWeight:700,color:C.accent}}>
+                {new Date(schedModal.date+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})} às {schedModal.time}
+              </div>
+            </div>
+            <div style={{background:C.accentDim,border:`1px solid ${C.accentSoft}`,borderRadius:10,padding:12,marginBottom:14}}>
+              <div style={{fontSize:10,color:C.textMuted,marginBottom:6}}>MENSAGEM QUE SERÁ ENVIADA</div>
+              <div style={{fontSize:11,color:C.text,lineHeight:1.6,whiteSpace:"pre-wrap"}}>
+                {`Olá ${schedModal.task.contact}! 😊\n\nSobre: *${schedModal.task.title}*\n\nTemos disponibilidade no dia *${new Date(schedModal.date+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})}* às *${schedModal.time}*.\n\nPodemos confirmar?`}
+              </div>
+            </div>
+            {(!zapiInst||!zapiTok)&&(
+              <div style={{fontSize:11,color:C.orange,marginBottom:10,textAlign:"center"}}>⚠ Z-API não configurada — agendamento será salvo sem enviar mensagem.</div>
+            )}
+            <div style={{display:"flex",gap:8}}>
+              <button onClick={()=>setSchedModal(null)} style={{flex:1,background:"transparent",
+                border:`1px solid ${C.border}`,color:C.textMuted,borderRadius:10,padding:"11px",fontSize:13,fontWeight:600,cursor:"pointer"}}>Cancelar</button>
+              <button onClick={confirmAndSend} disabled={sendingMsg} style={{flex:2,background:sendingMsg?C.border:C.accent,
+                color:sendingMsg?C.textMuted:"#000",border:"none",borderRadius:10,padding:"11px",
+                fontSize:13,fontWeight:700,cursor:sendingMsg?"not-allowed":"pointer",
+                display:"flex",alignItems:"center",justifyContent:"center",gap:6}}>
+                {sendingMsg&&<Spinner size={13} color="#000"/>}
+                {sendingMsg?"Enviando...":"✓ Confirmar e Enviar"}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ─── TASK DETAIL MODAL ───────────────────────────────── */}
+      {selected&&(
+        <div onClick={()=>setSelected(null)} style={{position:"fixed",inset:0,background:"#000000cc",zIndex:200,display:"flex",alignItems:"center",justifyContent:"center"}}>
+          <div onClick={e=>e.stopPropagation()} style={{background:C.card,borderRadius:16,padding:20,
+            width:480,maxHeight:"88vh",overflow:"auto",border:`1px solid ${C.border}`}}>
+
+            {/* Tags */}
+            <div style={{display:"flex",gap:6,flexWrap:"wrap",marginBottom:10}}>
+              <Tag color={TYPES[selected.type]?.color||C.blue}>{TYPES[selected.type]?.icon} {TYPES[selected.type]?.label}</Tag>
+              <Tag color={PRIO[selected.priority]?.color||C.orange}>{PRIO[selected.priority]?.label}</Tag>
+              <Tag color={STATUS[selected.status]?.color||C.blue} bg={STATUS[selected.status]?.bg}>{STATUS[selected.status]?.label}</Tag>
+              {selected.isAudio&&<Tag color={C.purple}>🎙 Áudio</Tag>}
+            </div>
+
+            {/* Title */}
+            <div style={{fontSize:16,fontWeight:700,marginBottom:14,lineHeight:1.4,color:C.text}}>{selected.title}</div>
+
+            {/* Contact card */}
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:12,marginBottom:12}}>
+              <div style={{fontSize:10,fontWeight:700,color:C.textMuted,marginBottom:8,letterSpacing:"0.05em"}}>CONTATO / ORIGEM</div>
+              <div style={{display:"flex",alignItems:"center",gap:10,marginBottom:8}}>
+                <div style={{width:38,height:38,borderRadius:"50%",background:C.blueDim,
+                  border:`1px solid ${C.blue}44`,display:"flex",alignItems:"center",justifyContent:"center",
+                  fontSize:16,flexShrink:0}}>👤</div>
+                <div>
+                  <div style={{fontSize:13,fontWeight:700,color:C.text}}>{selected.contact||"Contato desconhecido"}</div>
+                  {selected.phone&&<div style={{fontSize:11,color:C.textMuted,fontFamily:"DM Mono,monospace"}}>{selected.phone}</div>}
+                </div>
+              </div>
+              <div style={{display:"flex",gap:16,flexWrap:"wrap"}}>
+                {selected.source&&(
+                  <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                    <span style={{fontSize:11,color:C.textMuted}}>📲</span>
+                    <span style={{fontSize:11,color:C.textDim}}>{selected.source}</span>
+                  </div>
+                )}
+                {selected.createdAt&&(
+                  <div style={{display:"flex",gap:5,alignItems:"center"}}>
+                    <span style={{fontSize:11,color:C.textMuted}}>🕐</span>
+                    <span style={{fontSize:11,color:C.textDim}}>
+                      {new Date(selected.createdAt).toLocaleString("pt-BR",{day:"2-digit",month:"2-digit",hour:"2-digit",minute:"2-digit"})}
+                    </span>
+                  </div>
+                )}
+              </div>
+            </div>
+
+            {/* Date & details */}
+            <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:12,marginBottom:12}}>
+              <div style={{fontSize:10,fontWeight:700,color:C.textMuted,marginBottom:8,letterSpacing:"0.05em"}}>DETALHES</div>
+              <div style={{display:"flex",gap:10,marginBottom:6,alignItems:"flex-start"}}>
+                <span style={{fontSize:13,flexShrink:0}}>📅</span>
+                <div>
+                  <div style={{fontSize:10,color:C.textMuted,marginBottom:1}}>Data mencionada</div>
+                  <div style={{fontSize:12,color:selected.date?C.text:C.textMuted}}>{selected.date||"Sem data específica"}</div>
+                </div>
+              </div>
+              {selected.notes&&(
+                <div style={{display:"flex",gap:10,alignItems:"flex-start"}}>
+                  <span style={{fontSize:13,flexShrink:0}}>💬</span>
+                  <div>
+                    <div style={{fontSize:10,color:C.textMuted,marginBottom:3}}>Contexto da mensagem</div>
+                    <div style={{fontSize:12,color:C.textDim,lineHeight:1.6,background:C.card,
+                      borderRadius:8,padding:"8px 10px",border:`1px solid ${C.border}`,
+                      fontStyle:"italic"}}>{selected.notes}</div>
+                  </div>
+                </div>
+              )}
+            </div>
+
+            {/* Status change */}
+            <div style={{marginBottom:10}}>
+              <div style={{fontSize:10,fontWeight:700,color:C.textMuted,marginBottom:6,letterSpacing:"0.05em"}}>ALTERAR STATUS</div>
+              <div style={{display:"flex",gap:6}}>
+                {Object.entries(STATUS).map(([k,cfg])=>(
+                  <button key={k} onClick={()=>{onStatus(selected.id,k);setSelected({...selected,status:k});}}
+                    style={{flex:1,background:selected.status===k?cfg.bg:"transparent",
+                      border:`1px solid ${selected.status===k?cfg.color:C.border}`,
+                      color:selected.status===k?cfg.color:C.textMuted,
+                      borderRadius:8,padding:"9px 0",fontSize:11,fontWeight:600,cursor:"pointer"}}>{cfg.label}</button>
+                ))}
+              </div>
+            </div>
+
+            {/* Inline scheduling form */}
+            {selected.status!=="done"&&(
+              <div style={{background:C.surface,border:`1px solid ${C.border}`,borderRadius:10,padding:12,marginBottom:6}}>
+                <div style={{fontSize:10,fontWeight:700,color:C.textMuted,marginBottom:8,letterSpacing:"0.05em"}}>📅 AGENDAR</div>
+                <div style={{display:"flex",gap:6,marginBottom:8}}>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:10,color:C.textMuted,marginBottom:3}}>Data</div>
+                    <input type="date" value={modalSchedDate} onChange={e=>setModalSchedDate(e.target.value)}
+                      style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,
+                        color:C.text,padding:"7px 9px",fontSize:12,outline:"none"}}/>
+                  </div>
+                  <div style={{flex:1}}>
+                    <div style={{fontSize:10,color:C.textMuted,marginBottom:3}}>Horário</div>
+                    <input type="time" value={modalSchedTime} onChange={e=>setModalSchedTime(e.target.value)}
+                      style={{width:"100%",background:C.card,border:`1px solid ${C.border}`,borderRadius:7,
+                        color:C.text,padding:"7px 9px",fontSize:12,outline:"none"}}/>
+                  </div>
+                </div>
+                {modalSchedDate&&modalSchedTime&&(
+                  <div style={{fontSize:11,color:C.accent,marginBottom:8,padding:"5px 8px",
+                    background:C.accentDim,borderRadius:6,border:`1px solid ${C.accentSoft}`}}>
+                    {new Date(modalSchedDate+"T12:00:00").toLocaleDateString("pt-BR",{weekday:"long",day:"numeric",month:"long"})} às {modalSchedTime}
+                  </div>
+                )}
+                <div style={{display:"flex",gap:6}}>
+                  <button onClick={()=>saveDirectSchedule(selected,false)} disabled={savingDirectSched}
+                    style={{flex:1,background:savingDirectSched?C.border:C.accentDim,
+                      border:`1px solid ${savingDirectSched?C.border:C.accentSoft}`,
+                      color:savingDirectSched?C.textMuted:C.accent,borderRadius:7,
+                      padding:"8px",fontSize:11,fontWeight:600,cursor:savingDirectSched?"not-allowed":"pointer"}}>
+                    {savingDirectSched?"Salvando...":"✓ Salvar"}
+                  </button>
+                  <button onClick={()=>saveDirectSchedule(selected,true)} disabled={savingDirectSched||!zapiInst||!zapiTok}
+                    title={!zapiInst||!zapiTok?"Configure Z-API em Config":"Salvar e enviar WhatsApp"}
+                    style={{flex:2,background:savingDirectSched?C.border:C.accent,
+                      color:savingDirectSched?"#999":"#000",border:"none",borderRadius:7,
+                      padding:"8px",fontSize:11,fontWeight:700,
+                      cursor:savingDirectSched||!zapiInst||!zapiTok?"not-allowed":"pointer",
+                      opacity:!zapiInst||!zapiTok?0.5:1}}>
+                    {savingDirectSched?"Enviando...":"✓ Salvar e Notificar WhatsApp"}
+                  </button>
+                </div>
+              </div>
+            )}
+
+            {/* Remove / Close */}
+            <div style={{display:"flex",gap:6}}>
+              <button onClick={()=>{onDelete(selected.id);setSelected(null);}}
+                style={{flex:1,background:"transparent",border:`1px solid ${C.red}44`,color:C.red,
+                  borderRadius:8,padding:"9px",fontSize:12,fontWeight:600,cursor:"pointer"}}>🗑 Remover</button>
+              <button onClick={()=>setSelected(null)} style={{flex:1,background:"transparent",
+                border:`1px solid ${C.border}`,color:C.textMuted,borderRadius:8,padding:"9px",
+                fontSize:12,cursor:"pointer"}}>Fechar</button>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  );
+}
+
+ReactDOM.createRoot(document.getElementById("root")).render(<App/>);
+</script>
+</body>
+</html>
